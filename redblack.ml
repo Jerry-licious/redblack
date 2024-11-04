@@ -37,14 +37,17 @@ exception DuplicateKey;;
 exception RemoveRootLeaf;;
 exception NotFound;;
 
-let new_node (entry: ('k * 'v)): ('k, 'v) bst_node = 
-  let (k, v) = entry in {
+let unwrap (o: 'a option): 'a = match o with
+| None -> raise NotFound;
+| Some(v) -> v;
+
+let new_node (entry: ('k * 'v)): ('k, 'v) bst_node = let (k, v) = entry in {
     key=k;
     value=v;
     parent=ref None;
     left=ref None;
     right=ref None;
-  };;
+  } ;;
 
 let is_leaf (node: ('k, 'v) bst_node) = 
   !(node.left) = None && !(node.right) = None
@@ -140,4 +143,4 @@ let new_bst (cmp: 'k linear_ord) =
       | Some(node) -> try remove_at cmp key node 
         with RemoveRootLeaf -> (root := None; Some(node.value))
     );
-  };;
+  } ;;
