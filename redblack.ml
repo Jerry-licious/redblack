@@ -13,13 +13,17 @@ For the purposes of this program, it must be a linear order, that is:
 type 'a linear_ord = 'a -> 'a -> ordering;;
 
 (* Inverts a given linear order. *)
-let invert (f: 'a linear_ord): 'a linear_ord = (fun x y -> f y x)
+let invert (f: 'a linear_ord): 'a linear_ord = (fun x y -> f y x);;
 
+type node_colour = 
+  | Black
+  | Red;;
 
 (* Represents a node in a binary search tree. *)
 type ('k, 'v) bst_node = {
   mutable key: 'k;
   mutable value: 'v;
+  mutable colour: node_colour;
   parent: ('k, 'v) bst_node option ref;
   left: ('k, 'v) bst_node option ref;
   right: ('k, 'v) bst_node option ref;
@@ -37,13 +41,22 @@ exception DuplicateKey;;
 exception RemoveRootLeaf;;
 exception NotFound;;
 
-let unwrap (o: 'a option): 'a = match o with
-| None -> raise NotFound;
-| Some(v) -> v;
+let is_some(o: 'a option): bool = match o with
+| None -> false
+| Some(v) -> true
 
-let new_node (entry: ('k * 'v)): ('k, 'v) bst_node = let (k, v) = entry in {
+let is_none(o: 'a option): bool = match o with
+| None -> true
+| Some(v) -> false
+
+let unwrap (o: 'a option): 'a = match o with
+| None -> raise NotFound
+| Some(v) -> v
+
+let new_node (colour: node_colour) (entry: ('k * 'v)): ('k, 'v) bst_node = let (k, v) = entry in {
     key=k;
     value=v;
+    colour=colour;
     parent=ref None;
     left=ref None;
     right=ref None;
@@ -55,18 +68,62 @@ let is_leaf (node: ('k, 'v) bst_node) =
 let is_root (node: ('k, 'v) bst_node) =
   !(node.parent) = None
 
+(* Grandparent of a node. *)
+let gp(node: ('k, 'v) bst_node): ('k, 'v) bst_node option = 
+  match !(node.parent) with
+  | None -> None
+  | Some(parent) -> !(parent.parent)
+
+let sibling(node: ('k, 'v) bst_node): ('k, 'v) bst_node option =
+  match !(node.parent) with
+  | None -> None
+  | Some(parent) -> if (!(parent.left) = Some(node)) then !(parent.right)
+                    else !(parent.left)
+
+(* Sibling of parent *)
+let uncle(node: ('k, 'v) bst_node): ('k, 'v) bst_node option =
+  match !(node.parent) with
+  | None -> None
+  | Some(parent) -> sibling parent
+
+let rec fix(node: ('k, 'v) bst_node) =
+  if is_some (gp node) && (unwrap !(node.parent)).colour = Red && (unwrap (uncle node)).colour = Red then
+    (let grandparent = unwrap (gp node) 
+      in (
+        grandparent.colour <- Red;
+        (unwrap !(grandparent.left)).colour <- Black;
+        (unwrap !(grandparent.right)).colour <- Black;
+        fix(grandparent);
+      )
+    )
+  else if is_root node then ()
+  else (let parent = unwrap !(node.parent) 
+    in if is_root parent then (
+      let sib = unwrap (sibling node)
+      in if sib.colour = Red then
+        (
+          node.colour <- Black;
+          sib.colour <- Black
+        )
+    )
+    else if parent.colour = Black then ()
+    else (* parent.colour = Black and uncle.colour = Black *)
+    ( (* ROTATION HERE *) )
+  )
+
+
 (* Based on the given ordering, insert an entry as a child of the current node. *)
 let rec insert_at (cmp: 'k linear_ord) (node: ('k, 'v) bst_node) (entry: ('k * 'v)) =
   let (key, value) = entry in 
     match cmp key node.key with
     | LessThan -> (match !(node.left) with
       | Some(left_child) -> insert_at cmp left_child entry
-      | None -> let child = new_node entry in 
+      | None -> let child = new_node Red entry in 
         child.parent := Some(node); 
         node.left := Some(child))
     | GreaterThan -> (match !(node.right) with
       | Some(right_child) -> insert_at cmp right_child entry
-      | None -> let child = new_node entry in 
+      | None -> let child = new_node Red entry in 
         child.parent := Some(node); 
         node.right := Some(child))
     | Equal -> raise DuplicateKey
@@ -98,7 +155,7 @@ let rec pop_minimum (cmp: 'k linear_ord) (node: ('k, 'v) bst_node): ('k * 'v) =
     | Some(left) -> pop_minimum cmp left
     | None -> (
       (* Safe unwrap because we know this node isn't a leaf. *)
-      let right = Option.get !(node.right) 
+      let right = unwrap !(node.right) 
       and (current_key, current_value) = (node.key, node.value)
       in let (successor_key, successor_value) = pop_minimum cmp right 
         in node.key <- successor_key; node.value <- successor_value; (current_key, current_value)
@@ -117,7 +174,7 @@ let remove_at (cmp: 'k linear_ord) (key: 'k) (node: ('k, 'v) bst_node): 'v optio
       and (successor_key, successor_value) = (
         match !(node.left) with
         | Some(left) -> pop_maximum cmp left
-        | None -> pop_maximum cmp (Option.get !(node.right))
+        | None -> pop_maximum cmp (unwrap !(node.right))
       ) in (to_remove.key <- successor_key; to_remove.value <- successor_value; Some(removed_value))
   )
 
@@ -125,7 +182,7 @@ let new_bst (cmp: 'k linear_ord) =
   let root = ref None in {
     insert=(fun (entry: ('k * 'v)) -> 
       match !root with
-      | None -> root := Some(new_node entry)
+      | None -> root := Some(new_node Black entry)
       | Some(node) -> insert_at cmp node entry
     );
     search=( fun (key: 'k) -> 
@@ -144,3 +201,4 @@ let new_bst (cmp: 'k linear_ord) =
         with RemoveRootLeaf -> (root := None; Some(node.value))
     );
   } ;;
+
