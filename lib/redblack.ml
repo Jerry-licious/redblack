@@ -1,11 +1,11 @@
 type ordering =
   | LessThan
   | Equal
-  | GreaterThan;;
+  | GreaterThan
 
-type colour = Red | Black | DoubleBlack;;
-type 'a rbtree = Node of colour * 'a * 'a rbtree * 'a rbtree  | Leaf;;
-type 'a comparator = 'a -> 'a -> ordering;;
+type colour = Red | Black
+type 'a rbtree = Node of colour * 'a * 'a rbtree * 'a rbtree  | Leaf
+type 'a comparator = 'a -> 'a -> ordering
 (* search in RBT *)
 let rec search (cmp: 'a comparator) (t: 'a rbtree) (value: 'a): ('a rbtree option) = match t with
 | Leaf -> None
@@ -33,14 +33,25 @@ let blacken (node: 'a rbtree) = match node with
 | _ -> node
 (* Okasaki's insert in RBT *)
 let insert (cmp: 'a comparator) (t: 'a rbtree) (value: 'a) = 
-  let rec helper (subtree: 'a rbtree) = match subtree with
-  | Leaf -> Node (Red, value, Leaf, Leaf)
+  let rec helper (subtree: 'a rbtree) (sc: 'a rbtree -> 'a rbtree) = match subtree with
+  | Leaf -> sc (Node (Red, value, Leaf, Leaf))
   | Node (colour, v, left, right) -> match (cmp value v) with
-    | LessThan -> balance colour v (helper left) right
-    | GreaterThan -> balance colour v left (helper right)
-    | Equal -> subtree
+    | LessThan -> helper left (fun bleft -> sc (balance colour v bleft right))
+    | GreaterThan -> helper right (fun bright -> sc (balance colour v left bright))
+    | Equal -> sc subtree
 in
-blacken (helper t)
+blacken (helper t (fun x -> x))
+
+let print_node (node : int rbtree) = 
+  let rec helper (node: int rbtree) (level: int) (increment: int) = 
+    match node with
+    | Leaf -> ""
+    | Node (c, v, left, right) -> let nodeString = (String.make level '-') ^ (string_of_int v) ^ (if c = Red then " R" else "") in
+    let leftContent = if left != Leaf then "\n" ^ (helper left (level+increment) increment) else "" in
+    let rightContent = if right != Leaf then "\n" ^ helper right (level+increment) increment else "" in
+    String.concat "" [nodeString;leftContent;rightContent]
+  in
+  print_string (helper node 0 2)
 
 let cmp a b = let cmp_result = Stdlib.compare a b in
 match cmp_result with
@@ -63,8 +74,11 @@ in
     let left_rank = helper l in
     let right_rank = helper r in
     if c = Red then
+      (
       check_not_red l;
-      check_not_red r;
+      check_not_red r
+      )
+    else ();
     if left_rank = right_rank then left_rank+(if c = Black then 1 else 0) else (raise BadRBGlobalVariant)
     in
     helper t
@@ -72,8 +86,8 @@ in
 
 (* TODO: implement flatten *)
 exception NotImplemented
-let flatten (t: 'a rbtree) : 'a list = raise NotImplemented
-let treemap (f: 'a -> 'b)(t: 'a rbtree): 'b list = raise NotImplemented
+(* let flatten (t: 'a rbtree) : 'a list = raise NotImplemented *)
+(* let treemap (f: 'a -> 'b)(t: 'a rbtree): 'b list = raise NotImplemented *)
 
 let make_rb (cmp: 'a comparator) (values: 'a list) =
   let reducer t value = insert cmp t value in
@@ -81,9 +95,12 @@ let make_rb (cmp: 'a comparator) (values: 'a list) =
 
 type 'a rb = {
   insert: 'a -> unit;
-  search: 'a -> 'a option;
+  insert_list: 'a list -> unit;
+  print: unit -> unit;
   remove: 'a -> bool;
   root: 'a rbtree;
+  search: 'a -> 'a option;
+  validate: unit -> int;
 };;
 let new_rb (cmp: 'a comparator) = 
 
@@ -91,8 +108,8 @@ let new_rb (cmp: 'a comparator) =
   let count = ref 0 in
   
   let deleteTable = Hashtbl.create 1000 in
-  let cleanup () = if 2 * (Hashtbl.length deleteTable) > !count then
-    (* time to cleanup. will use it after treemap and flatten is properly implemented *)
+  let cleanup () = let deletedCount = Hashtbl.length deleteTable in if 2 * deletedCount > !count then
+    (* time to cleanup. get all the values that are not in deleteTable and add them a brand new Red Black tree *)
     () in
 
   let remove_lazy x = match Hashtbl.find_opt deleteTable x with 
@@ -112,11 +129,16 @@ let new_rb (cmp: 'a comparator) =
       count := !count + 1;
       insert cmp !t x
     ) in
+  let insert_rb x = (t:= insert_with_lazy x) in
+  let insert_list_rb xs = List.fold_left (fun _ x -> insert_rb x) () xs in
   {
-    insert = (fun x -> (t := insert_with_lazy x));
+    insert = insert_rb;
+    insert_list = insert_list_rb;
+    print = (fun () -> print_node !t);
     remove = remove_lazy;
     root = !t;
     search = search_with_lazy;
+    validate = (fun () -> validate !t);
   }
 
 (*
@@ -349,16 +371,6 @@ let remove_at (cmp: 'k linear_ord) (key: 'k) (node: ('k, 'v) bst_node): 'v optio
   )
 
 (* returns a stringifed version of the node with only its value *)
-let rec print_node (node : (int, int) bst_node option) = 
-  let rec helper (node: (int, int) bst_node option) (level: int) (increment: int) = 
-    match node with
-    | None -> ""
-    | Some x -> let nodeString = (String.make level '-') ^ (string_of_int x.key) ^ (if x.colour = Red then " R" else "") in
-    let leftContent = if !(x.left) != None then "\n" ^ (helper !(x.left) (level+increment) increment) else "" in
-    let rightContent = if !(x.right) != None then "\n" ^ helper !(x.right) (level+increment) increment else "" in
-    concat "" [nodeString;leftContent;rightContent]
-  in
-  helper node 0 2
 
 
 let new_bst (cmp: 'k linear_ord) = 
