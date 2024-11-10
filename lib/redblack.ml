@@ -1,10 +1,127 @@
-open String
-(* Result of a comparison. *)
 type ordering =
   | LessThan
   | Equal
   | GreaterThan;;
 
+type colour = Red | Black | DoubleBlack;;
+type 'a rbtree = Node of colour * 'a * 'a rbtree * 'a rbtree  | Leaf;;
+type 'a comparator = 'a -> 'a -> ordering;;
+(* search in RBT *)
+let rec search (cmp: 'a comparator) (t: 'a rbtree) (value: 'a): ('a rbtree option) = match t with
+| Leaf -> None
+| Node (_, v, left, right) -> match (cmp value v) with
+  | LessThan -> search cmp left value
+  | GreaterThan -> search cmp right value
+  | Equal -> Some t
+
+(* Okasaki's balance operation that rotates the RBT so that the red node bubbles up *)
+(* we handle all the cases where there is two successive reds, and put them next to each other *)
+(* Refer to the diagram in https://www.cambridge.org/core/services/aop-cambridge-core/content/view/471C92AF3D431403FEE6C66FE070C492/S0956796814000227a.pdf/deletion-the-curse-of-the-red-black-tree.pdf for more details *)
+
+let balance (c: colour) (value: 'a) (left: 'a rbtree) (right: 'a rbtree) = match (c,value,left,right) with
+| (Black, z, Node (Red, y, Node (Red, x, a, b), c), d)
+| (Black, z, Node (Red, x, a, Node (Red, y, b, c)), d)
+| (Black, x, a, Node (Red, z, Node (Red, y, b, c), d))
+| (Black, x, a, Node (Red, y, b, Node (Red,z, c,d )))-> 
+    let left_sub = Node (Black, x, a,b) in
+    let right_sub = Node (Black, z, c, d) in
+    Node (Red,y, left_sub, right_sub)
+| _ -> Node (c, value, left, right)
+
+let blacken (node: 'a rbtree) = match node with
+| Node (Red, v, left, right) -> Node (Black, v, left, right)
+| _ -> node
+(* Okasaki's insert in RBT *)
+let insert (cmp: 'a comparator) (t: 'a rbtree) (value: 'a) = 
+  let rec helper (subtree: 'a rbtree) = match subtree with
+  | Leaf -> Node (Red, value, Leaf, Leaf)
+  | Node (colour, v, left, right) -> match (cmp value v) with
+    | LessThan -> balance colour v (helper left) right
+    | GreaterThan -> balance colour v left (helper right)
+    | Equal -> subtree
+in
+blacken (helper t)
+
+let cmp a b = let cmp_result = Stdlib.compare a b in
+match cmp_result with
+| 0 -> Equal
+| _ when cmp_result < 0 -> LessThan
+| _ -> GreaterThan
+
+(* validate validates if a given rbtree satisfies the invariants *)
+exception BadRBLocalVariant;;
+exception BadRBGlobalVariant;;
+let validate (t: 'a rbtree) = 
+  (* helper returns the black rank of the node, provided it is equal, otherwise it raises an exception *)
+  let check_not_red (t: 'a rbtree) = match t with
+  | Node (Red, _, _, _) -> raise BadRBLocalVariant
+  | _ -> ()
+in
+  let rec helper (t: 'a rbtree) = match t with
+  | Leaf -> 0
+  | Node (c, _, l, r) -> 
+    let left_rank = helper l in
+    let right_rank = helper r in
+    if c = Red then
+      check_not_red l;
+      check_not_red r;
+    if left_rank = right_rank then left_rank+(if c = Black then 1 else 0) else (raise BadRBGlobalVariant)
+    in
+    helper t
+
+
+(* TODO: implement flatten *)
+exception NotImplemented
+let flatten (t: 'a rbtree) : 'a list = raise NotImplemented
+let treemap (f: 'a -> 'b)(t: 'a rbtree): 'b list = raise NotImplemented
+
+let make_rb (cmp: 'a comparator) (values: 'a list) =
+  let reducer t value = insert cmp t value in
+  List.fold_left reducer Leaf values
+
+type 'a rb = {
+  insert: 'a -> unit;
+  search: 'a -> 'a option;
+  remove: 'a -> bool;
+  root: 'a rbtree;
+};;
+let new_rb (cmp: 'a comparator) = 
+
+  let t = ref Leaf in
+  let count = ref 0 in
+  
+  let deleteTable = Hashtbl.create 1000 in
+  let cleanup () = if 2 * (Hashtbl.length deleteTable) > !count then
+    (* time to cleanup. will use it after treemap and flatten is properly implemented *)
+    () in
+
+  let remove_lazy x = match Hashtbl.find_opt deleteTable x with 
+  | Some _ -> false
+  | None -> (Hashtbl.add deleteTable x x; cleanup (); true) in
+  let search_with_lazy x : 'a option = match Hashtbl.find_opt deleteTable x with
+  | Some _ -> None
+  | None -> match (search cmp !t x) with
+    | Some (Node (_, v, _, _)) -> Some v
+    | _ -> None 
+  in
+  let insert_with_lazy x = match Hashtbl.find_opt deleteTable x with
+  | Some _ -> (Hashtbl.remove deleteTable x); !t
+  | None -> (
+    let result = search_with_lazy x in
+    if result = None then
+      count := !count + 1;
+      insert cmp !t x
+    ) in
+  {
+    insert = (fun x -> (t := insert_with_lazy x));
+    remove = remove_lazy;
+    root = !t;
+    search = search_with_lazy;
+  }
+
+(*
+open String
+(* Result of a comparison. *)
 (* A function that compares two values. 
 For the purposes of this program, it must be a linear order, that is:
 1. a <= a for all (a: 'a).
@@ -36,6 +153,7 @@ type ('k, 'v) bst = {
   search: 'k -> 'v option;
   remove: 'k -> 'v option;
   root: ('k,'v) bst_node option ref;
+  print: unit -> unit;
 };;
 
 exception DuplicateKey;;
@@ -230,6 +348,19 @@ let remove_at (cmp: 'k linear_ord) (key: 'k) (node: ('k, 'v) bst_node): 'v optio
       ) in (to_remove.key <- successor_key; to_remove.value <- successor_value; Some(removed_value))
   )
 
+(* returns a stringifed version of the node with only its value *)
+let rec print_node (node : (int, int) bst_node option) = 
+  let rec helper (node: (int, int) bst_node option) (level: int) (increment: int) = 
+    match node with
+    | None -> ""
+    | Some x -> let nodeString = (String.make level '-') ^ (string_of_int x.key) ^ (if x.colour = Red then " R" else "") in
+    let leftContent = if !(x.left) != None then "\n" ^ (helper !(x.left) (level+increment) increment) else "" in
+    let rightContent = if !(x.right) != None then "\n" ^ helper !(x.right) (level+increment) increment else "" in
+    concat "" [nodeString;leftContent;rightContent]
+  in
+  helper node 0 2
+
+
 let new_bst (cmp: 'k linear_ord) = 
   let rootRef = ref None in
   let update_root () = 
@@ -267,6 +398,7 @@ let new_bst (cmp: 'k linear_ord) =
       )
         with RemoveRootLeaf -> (rootRef := None; Some(node.value))
     );
+    print=(fun () -> print_string (print_node !rootRef); ());
     root=rootRef;
   } ;;
 
@@ -284,19 +416,16 @@ let mnl (v: int) (left: ('k, 'v) bst_node) = make_node v v Red (Some left) None
 let mnr (v: int) (right: ('k, 'v) bst_node) = make_node v v Red None (Some right)
 let ml (v: int) = make_node v v Black None None
 
-(* returns a stringifed version of the node with only its value *)
-let rec print_node (node : (int, int) bst_node option) = 
-  let rec helper (node: (int, int) bst_node option) (level: int) (increment: int) = 
-    match node with
-    | None -> ""
-    | Some x -> let nodeString = (String.make level '-') ^ (string_of_int x.key) in
-    let leftContent = if !(x.left) != None then "\n" ^ (helper !(x.left) (level+increment) increment) else "" in
-    let rightContent = if !(x.right) != None then "\n" ^ helper !(x.right) (level+increment) increment else "" in
-    concat "" [nodeString;leftContent;rightContent]
-  in
-  helper node 0 2
-
-
 
 let sample_node = mnf 2 (mnl 1 (ml 0)) (mnr 3 (ml 4));;
-print_string (print_node (Some sample_node));;
+(* print_string (print_node (Some sample_node));; *)
+
+let simple_order (a : int) (b: int) = let cmp_result = Stdlib.compare a b in
+if cmp_result < 0 then LessThan else if cmp_result > 0 then GreaterThan else Equal
+let sample_bst = new_bst simple_order;;
+sample_bst.insert (1,1);;
+sample_bst.insert (2,2);;
+sample_bst.insert (3,3);;
+sample_bst.insert (4,4);;
+sample_bst.print ();;
+*)

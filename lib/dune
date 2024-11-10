@@ -1,2 +1,2 @@
 (library
- (name redblack))
+ (names redblack redblack_fp))
