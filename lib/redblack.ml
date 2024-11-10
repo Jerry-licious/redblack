@@ -87,7 +87,25 @@ in
 (* TODO: implement flatten *)
 exception NotImplemented
 (* let flatten (t: 'a rbtree) : 'a list = raise NotImplemented *)
+let rec flatten (t: 'a rbtree) : 'a list =
+  match t with
+  | Leaf -> []
+  | Node (_, v, l, r) -> 
+    let left_list = flatten l in
+    let right_list = flatten r in
+    left_list @ [v] @ right_list
+
 (* let treemap (f: 'a -> 'b)(t: 'a rbtree): 'b list = raise NotImplemented *)
+
+let rec treemap (f: 'a -> 'b)(t: 'a rbtree): 'b list =
+  match t with
+  | Leaf -> []
+  | Node (_, v, l, r) -> 
+    let left_list = treemap f l in
+    let transformed_value = f v in
+    let right_list = treemap f r in
+    left_list @ [transformed_value] @ right_list
+
 
 let make_rb (cmp: 'a comparator) (values: 'a list) =
   let reducer t value = insert cmp t value in
