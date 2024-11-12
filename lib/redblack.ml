@@ -128,7 +128,15 @@ let new_rb (cmp: 'a comparator) =
   let deleteTable = Hashtbl.create 1000 in
   let cleanup () = let deletedCount = Hashtbl.length deleteTable in if 2 * deletedCount > !count then
     (* time to cleanup. get all the values that are not in deleteTable and add them a brand new Red Black tree *)
-    () in
+    (
+      let remaining = List.filter (fun x -> not (Hashtbl.mem deleteTable x)) (flatten (!t)) 
+      in let rebuilt = List.fold_left (insert cmp) Leaf remaining 
+      in (
+        t := rebuilt;
+        count := List.length remaining;
+        Hashtbl.clear deleteTable
+      )
+    ) in
 
   let remove_lazy x = match Hashtbl.find_opt deleteTable x with 
   | Some _ -> false
@@ -178,6 +186,9 @@ type ('k, 'v) keyed_rb = {
   Mainly, while lookups only care about the key, we still need a valid instance of
   ('k * 'v) to do the lookup. To circumvent this, internally we use an instance of
   tree with ('k * 'v option) values, so (k, None) is always a valie lookup. 
+
+  While it may be better to modify the original type, I find this a cool way of
+  doing a functional programming trick. 
   *)
   get_root: unit -> ('k * 'v option) rbtree;
   search: 'k -> 'v option;
@@ -205,3 +216,4 @@ let new_keyed_rb (comp: 'k comparator): ('k, 'v) keyed_rb =
     );
     validate=(fun () -> tree.validate())
   }
+
