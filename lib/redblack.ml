@@ -5,6 +5,13 @@ type ordering =
 
 type colour = Red | Black
 type 'a rbtree = Node of colour * 'a * 'a rbtree * 'a rbtree  | Leaf
+
+(* A function that compares two values. 
+For the purposes of this program, it must be a linear order, that is:
+1. a <= a for all (a: 'a).
+2. If a <= b and b <= c, then a <= c.
+3. If a <= b and b <= a, then a = b.
+4. For any ((a, b): ('a * 'a)), either a <= b or b <= a. *)
 type 'a comparator = 'a -> 'a -> ordering
 (* search in RBT *)
 let rec search (cmp: 'a comparator) (t: 'a rbtree) (value: 'a): ('a rbtree option) = match t with
@@ -119,6 +126,7 @@ type 'a rb = {
   get_root: unit -> 'a rbtree;
   search: 'a -> 'a option;
   validate: unit -> int;
+  lazy_count: unit -> int;
 };;
 let new_rb (cmp: 'a comparator) = 
 
@@ -165,6 +173,7 @@ let new_rb (cmp: 'a comparator) =
     get_root = (fun () -> !t);
     search = search_with_lazy;
     validate = (fun () -> validate !t);
+    lazy_count = (fun () -> Hashtbl.length deleteTable)
   };;
 
 (* Where the key and value are independent from each other. *)
