@@ -114,9 +114,9 @@ type 'a rb = {
   validate: unit -> int;
   lazy_count: unit -> int;
 };;
-let new_rb (cmp: 'a comparator) = 
 
-  let t = ref Leaf in
+let new_rb_with_root (cmp: 'a comparator) (tree: 'a rbtree) = 
+  let t = ref tree in
   let count = ref 0 in
   
   let deleteTable = Hashtbl.create 1000 in
@@ -161,6 +161,8 @@ let new_rb (cmp: 'a comparator) =
     validate = (fun () -> validate !t);
     lazy_count = (fun () -> Hashtbl.length deleteTable)
   };;
+let new_rb (cmp: 'a comparator) = new_rb_with_root cmp Leaf
+
 
 (* Where the key and value are independent from each other. *)
 type ('k, 'v) keyed_rb = {
@@ -257,7 +259,7 @@ let validate_tree (tree: 'a rb): unit =
   (validate_height tree; validate_occupancy tree; ignore (tree.validate()))
 
 
-let rec random_ints (n: int) = if n = 0 then [] else (Random.int 1000)::(random_ints (n-1))
+let rec random_ints (n: int) = if n = 0 then [] else (Random.int 1073741823)::(random_ints (n-1))
 let random_inserts (n: int) = 
   let t = new_rb cmp and data = random_ints n in
   List.iter (fun x -> (t.insert x; validate_tree t;)) data;;
