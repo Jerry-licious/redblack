@@ -1,4 +1,4 @@
 (executable
  (public_name redblack)
  (name main)
- (libraries redblack))
+ (libraries redblack benchmark))
