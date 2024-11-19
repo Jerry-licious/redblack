@@ -98,6 +98,7 @@ let random_deletes_lookups (n: int) =
 
 let test_size = 1000
 (* The Random Insertion tests inserts 1000 elements in an rb tree, and after each iteration, we verify that the local and global invariants are satisfied *)
+(* It also tests if the element is present in the rbtree using t.search *)
 let insert_tests = "Random Insertions" >::: [
   "Insertion: Structure" >:: (fun _ -> random_inserts test_size);
   "Insertion: Lookups" >:: (fun _ -> random_inserts_lookups test_size);
@@ -105,6 +106,7 @@ let insert_tests = "Random Insertions" >::: [
 
 
 (* The Random Deletion tests inserts 1000 elements in an rb tree and deletes 80% of it afterwards, and after each iteration, we verify that the local and global invariants are satisfied *)
+(* It also tests if the element is deleted in the rbtree using t.search and ensures that the delete hashtable does not exceed 50% of the nodes *)
 let delete_tests = "Random Deletions" >::: [
   "Deletion: Structure" >:: (fun _ -> random_deletes test_size);
   "Deletion: Search" >:: (fun _ -> random_deletes_lookups test_size);
