@@ -35,10 +35,11 @@ let balance (c: colour) (value: 'a) (left: 'a rbtree) (right: 'a rbtree) = match
     Node (Red,y, left_sub, right_sub)
 | _ -> Node (c, value, left, right)
 
+(* blacken accepts a node and outputs a copy of the node, but red *)
 let blacken (node: 'a rbtree) = match node with
 | Node (Red, v, left, right) -> Node (Black, v, left, right)
 | _ -> node
-(* Okasaki's insert in RBT *)
+(* insert implements Okasaki's insertion algorithm. It uses a success continuation to bubble up the red node to the root, and then blacken it *)
 let insert (cmp: 'a comparator) (t: 'a rbtree) (value: 'a) = 
   let rec helper (subtree: 'a rbtree) (sc: 'a rbtree -> 'a rbtree) = match subtree with
   | Leaf -> sc (Node (Red, value, Leaf, Leaf))
@@ -49,6 +50,7 @@ let insert (cmp: 'a comparator) (t: 'a rbtree) (value: 'a) =
 in
 blacken (helper t (fun x -> x))
 
+(* print_node is a helper function that prints an integer red black tree *)
 let print_node (node : int rbtree) = 
   let rec helper (node: int rbtree) (level: int) (increment: int) = 
     match node with
@@ -60,15 +62,16 @@ let print_node (node : int rbtree) =
   in
   print_string (helper node 0 2)
 
+(* cmp is a standard comparator for int rbtrees  *)
 let cmp a b = let cmp_result = Stdlib.compare a b in
 match cmp_result with
 | 0 -> Equal
 | _ when cmp_result < 0 -> LessThan
 | _ -> GreaterThan
 
-(* validate validates if a given rbtree satisfies the invariants *)
-exception BadRBLocalVariant;;
 exception BadRBGlobalVariant;;
+(* validate validates if a given rbtree satisfies the local (no successive red nodes) and global invariants (black height is the same across all paths) *)
+exception BadRBLocalVariant;;
 let validate (t: 'a rbtree) = 
   (* helper returns the black rank of the node, provided it is equal, otherwise it raises an exception *)
   let check_not_red (t: 'a rbtree) = match t with
@@ -90,6 +93,7 @@ in
     in
     helper t
 
+(* flatten takes an rbtree and outputs an inorder traversal of the rbtree  *)
 let rec flatten (t: 'a rbtree) : 'a list =
   match t with
   | Leaf -> []
@@ -98,12 +102,16 @@ let rec flatten (t: 'a rbtree) : 'a list =
     let right_list = flatten r in
     left_list @ [v] @ right_list
 
+(* treemap maps a function f to an rbtree and returns it in an inorder list *)
 let treemap (f: 'a -> 'b)(t: 'a rbtree): 'b list = List.map f (flatten t)
 
+(* make_rb is a helper method to make an rbtree based on a list of values *)
 let make_rb (cmp: 'a comparator) (values: 'a list) =
   let reducer t value = insert cmp t value in
   List.fold_left reducer Leaf values
 
+(* the rb record supports insertion, multiple insertion, removal, and some auxiliary methods such as getting the root, validating the tree, and getting the lazy count *)
+(* our complete implementation of the rb tree uses lazy-delete, which has an amortized performance of O(logn) *)
 type 'a rb = {
   insert: 'a -> unit;
   insert_list: 'a list -> unit;
@@ -115,11 +123,13 @@ type 'a rb = {
   lazy_count: unit -> int;
 };;
 
+(* new_rb_with_root is a function that takes a comparator and a rbtree node and produces a rb record for mutable insertion and deletion *)
 let new_rb_with_root (cmp: 'a comparator) (tree: 'a rbtree) = 
   let t = ref tree in
   let count = ref 0 in
   
-  let deleteTable = Hashtbl.create 1000 in
+  let deleteTable = Hashtbl.create 200000 in
+  (* cleanup is invoked when the number of deleted elements is greater than the number of existing elements. the rb tree is created anew with only the non-deleted elements *)
   let cleanup () = let deletedCount = Hashtbl.length deleteTable in if 2 * deletedCount > !count then
     (* time to cleanup. get all the values that are not in deleteTable and add them a brand new Red Black tree *)
     (
@@ -132,15 +142,18 @@ let new_rb_with_root (cmp: 'a comparator) (tree: 'a rbtree) =
       )
     ) in
 
+  (* remove_lazy lazily removes an element by putting it inside the hashtable *)
   let remove_lazy x = match Hashtbl.find_opt deleteTable x with 
   | Some _ -> false
   | None -> (Hashtbl.add deleteTable x x; cleanup (); true) in
+  (* search_with_lazy searches an element, making sure that it is not in the delete hashtable *)
   let search_with_lazy x : 'a option = match Hashtbl.find_opt deleteTable x with
   | Some _ -> None
   | None -> match (search cmp !t x) with
     | Some (Node (_, v, _, _)) -> Some v
     | _ -> None 
   in
+  (* insert_with_lazy inserts an element in the rb tree while keeping into account the delete hashtable *)
   let insert_with_lazy x = match Hashtbl.find_opt deleteTable x with
   | Some _ -> (Hashtbl.remove deleteTable x); !t
   | None -> (
@@ -149,7 +162,9 @@ let new_rb_with_root (cmp: 'a comparator) (tree: 'a rbtree) =
       count := !count + 1;
       insert cmp !t x
     ) in
+    (* insert_rb inserts a value in place *)
   let insert_rb x = (t:= insert_with_lazy x) in
+  (* insert_list_rb inserts a list of values in place *)
   let insert_list_rb xs = List.fold_left (fun _ x -> insert_rb x) () xs in
   {
     insert = insert_rb;
@@ -161,6 +176,7 @@ let new_rb_with_root (cmp: 'a comparator) (tree: 'a rbtree) =
     validate = (fun () -> validate !t);
     lazy_count = (fun () -> Hashtbl.length deleteTable)
   };;
+(* new_rb is a shorthand for creating an empty rb tree *)
 let new_rb (cmp: 'a comparator) = new_rb_with_root cmp Leaf
 
 
@@ -196,9 +212,11 @@ type ('k, 'v) keyed_rb = {
 let wrap_key_comparator (key_comp: 'k comparator): ('k * 'v) comparator =
   (fun (x: ('k * 'v)) (y: ('k * 'v)) -> key_comp (fst x) (fst y))
 
+(* wrap_kv wraps a tuple into a tuple to be used by the keyed_rb *)
 let wrap_kv(pair: ('k * 'v)): ('k * 'v option) =
   let (k, v) = pair in (k, Some(v))
 
+(* keyed_rb creates a keyable red black tree that performs comparison based on keys and allows storing values *)
 let new_keyed_rb (comp: 'k comparator): ('k, 'v) keyed_rb = 
   let comp = wrap_key_comparator comp in
   let tree: ('k * 'v option) rb = (new_rb comp) in {
@@ -213,98 +231,3 @@ let new_keyed_rb (comp: 'k comparator): ('k, 'v) keyed_rb =
     );
     validate=(fun () -> tree.validate())
   }
-
-let basic_ordering a b = let cmp_result = compare a b in
-if cmp_result < 0 then LessThan else if cmp_result > 0 then GreaterThan else Equal
-
-exception TooShort;;
-exception TooTall;;
-exception TooLazy;; (* Too many marked nodes. *)
-
-
-exception Missing;; (* Search does not return an element when it should be there. *)
-exception Present;; (* Search returns something when it shouldn't be there. *)
-
-
-(* Counts the number of nodes in the tree. *)
-let count_nodes (tree: 'a rb): int =
-  let rec count_nodes_in (accumulator: int) (subtree: 'a rbtree): int =
-    match subtree with
-    | Leaf -> accumulator
-    | Node(_, _, left, right) -> count_nodes_in (count_nodes_in (accumulator + 1) left) right
-  in count_nodes_in 0 (tree.get_root())
-
-(* Calculates the height of the tree (depth of the deepest node). *)
-let height (tree: 'a rb): int =
-  let rec height_from (subtree: 'a rbtree): int =
-    match subtree with
-    | Leaf -> 0
-    | Node(_, _, left, right) -> (max (height_from left) (height_from right)) + 1
-  in height_from (tree.get_root())
-
-
-let validate_height (tree: 'a rb) =
-  let total = count_nodes tree
-  and height = height tree
-  in let log2_total = (int_of_float (ceil (log (float_of_int (total + 1)))) + 1)
-  in if height > log2_total * 2 then (print_int height; print_endline ""; print_int log2_total; raise TooTall)
-     else if height < log2_total - 1 then raise TooShort
-     else ()
-
-let validate_occupancy (tree: 'a rb) =
-  let total = count_nodes tree in
-  if (tree.lazy_count()) * 2 > total then raise TooLazy else ()
-
-let validate_tree (tree: 'a rb): unit = 
-  (validate_height tree; validate_occupancy tree; ignore (tree.validate()))
-
-
-let rec random_ints (n: int) = if n = 0 then [] else (Random.int 1073741823)::(random_ints (n-1))
-let random_inserts (n: int) = 
-  let t = new_rb cmp and data = random_ints n in
-  List.iter (fun x -> (t.insert x; validate_tree t;)) data;;
-
-let filteri (p: int -> 'a -> bool) (els: 'a list): 'a list = 
-  let helper (acc,current_index) el = if p current_index el then (acc@[el],current_index+1) else (acc,current_index) in
-  fst (List.fold_left helper ([],0) els)
-
-let random_inserts_lookups (n: int) =
-  let t = new_rb cmp and data = random_ints n in
-  List.iteri (fun i x -> (
-    t.insert x; 
-    List.iteri (fun j x -> (
-      let result = t.search x in
-      if j <= i then (if Option.is_none result then raise Missing else ())
-      else (
-        let previous = filteri (fun (index: int) (_: int) -> index <= i) data
-        in if List.mem x previous then ()
-        else if Option.is_some result then raise Present else ()
-      ))
-    )) data;
-  ) data;;
-let random_deletes (n: int) = 
-  let t = new_rb cmp and data = random_ints n in (
-    t.insert_list data;
-    List.iter (fun x -> (
-      if Random.float 1.0 < 0.8 then (
-        ignore (t.remove x); validate_tree t
-      )
-      else ()
-    )) data
-  );;
-
-  
-let random_deletes_lookups (n: int) =
-  let t = new_rb cmp and data = random_ints n in (
-    t.insert_list data;
-    List.iter (fun x -> (
-      if Option.is_some (t.search x) then (
-        if Random.bool() then (
-          ignore (t.remove x); 
-          if Option.is_some (t.search x) 
-            then raise Present else ()
-        )
-        else ()
-      ) else ()
-    )) data
-  );;
